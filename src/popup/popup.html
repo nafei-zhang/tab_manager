@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tab Disaster Manager</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <h1>Tab Disaster Manager</h1>
+        <button id="refreshBtn" type="button">Refresh</button>
+      </header>
+
+      <section class="card">
+        <h2>Duplicate Cleanup</h2>
+        <div class="rule-grid">
+          <label><input type="checkbox" id="ignoreQuery" /> Ignore query params</label>
+          <label><input type="checkbox" id="ignoreHash" /> Ignore hash</label>
+          <label><input type="checkbox" id="ignoreProtocol" /> Ignore protocol</label>
+          <label><input type="checkbox" id="ignoreWww" /> Ignore www</label>
+        </div>
+        <div class="row">
+          <span id="duplicateSummary">Duplicate tabs: 0</span>
+          <button id="cleanDuplicateBtn" type="button">Clean duplicates</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Search</h2>
+        <div class="row gap">
+          <input id="searchInput" type="text" placeholder="Search title / URL / domain" />
+          <select id="searchMode">
+            <option value="normal">Normal</option>
+            <option value="fuzzy">Fuzzy</option>
+            <option value="regex">Regex</option>
+          </select>
+        </div>
+        <div id="searchResults" class="results"></div>
+      </section>
+
+      <section class="card">
+        <h2>Domain Groups</h2>
+        <div class="row">
+          <span class="group-meta">Organize tabs by domain</span>
+          <button id="organizeDomainBtn" type="button">Organize</button>
+        </div>
+        <div id="groupContainer" class="groups"></div>
+      </section>
+
+      <section class="card">
+        <h2>Workspaces</h2>
+        <div class="row gap workspace-create-row">
+          <input id="workspaceName" type="text" placeholder="Workspace name" />
+          <button id="saveWorkspaceBtn" type="button">Save current</button>
+        </div>
+        <div class="row gap workspace-io-row">
+          <button id="exportWorkspaceBtn" class="workspace-io-btn" type="button">Export</button>
+          <label class="import-label workspace-io-btn" for="importWorkspaceInput">Import</label>
+          <input id="importWorkspaceInput" type="file" accept="application/json" />
+        </div>
+        <div id="workspaceList" class="workspace-list"></div>
+      </section>
+
+      <p id="statusText" class="status"></p>
+    </main>
+    <script type="module" src="./popup.js"></script>
+  </body>
+  </html>

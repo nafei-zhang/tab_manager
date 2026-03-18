@@ -1,0 +1,339 @@
+:root {
+  color-scheme: light dark;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 460px;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.app {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+h1,
+h2 {
+  margin: 0;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: 18px;
+}
+
+h2 {
+  font-size: 15px;
+}
+
+.header,
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.row.gap {
+  gap: 6px;
+}
+
+.workspace-create-row {
+  align-items: stretch;
+  gap: 8px;
+}
+
+input,
+select,
+button {
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 5px 9px;
+  background: #1f2937;
+  color: #f9fafb;
+}
+
+input[type="text"] {
+  width: 100%;
+}
+
+#workspaceName {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #4b5563;
+  background: #111827;
+}
+
+#workspaceName::placeholder {
+  color: #6b7280;
+}
+
+#workspaceName:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+button,
+.import-label {
+  cursor: pointer;
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #e5e7eb;
+  border-radius: 6px;
+}
+
+button:hover,
+.import-label:hover {
+  background: #273244;
+  border-color: #4b5563;
+}
+
+button:active,
+.import-label:active {
+  background: #1b2433;
+}
+
+#saveWorkspaceBtn {
+  flex: 0 0 auto;
+  min-width: 90px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.import-label {
+  padding: 5px 9px;
+  border-radius: 6px;
+}
+
+.workspace-io-row {
+  justify-content: space-between;
+  gap: 0;
+}
+
+.workspace-io-btn {
+  display: inline-flex;
+  flex: 0 0 56px;
+  width: 56px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-width: 56px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.card {
+  border: 1px solid #374151;
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-grid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  font-size: 12px;
+}
+
+.rule-grid label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.groups,
+.results,
+.workspace-list {
+  max-height: 220px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group,
+.item,
+.workspace {
+  border: 1px solid #4b5563;
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.group-meta {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.tab-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tab-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tab-url {
+  font-size: 11px;
+  color: #9ca3af;
+  word-break: break-all;
+}
+
+mark {
+  background: #f59e0b;
+  color: #111827;
+}
+
+#importWorkspaceInput {
+  display: none;
+}
+
+.status {
+  margin: 0;
+  font-size: 12px;
+  color: #60a5fa;
+}
+
+.search-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.search-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.icon-btn {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  border-radius: 6px;
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.icon-btn:hover {
+  background: #374151;
+  color: #f8fafc;
+}
+
+.workspace-body {
+  margin-top: 4px;
+}
+
+.workspace {
+  background: #0f172a;
+}
+
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.workspace-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-title {
+  display: block;
+  font-size: 13px;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.workspace-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-icon-btn {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  font-size: 11px;
+}
+
+.workspace-date {
+  margin-bottom: 4px;
+}
+
+.workspace-tab-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.workspace-tab-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.workspace-tab-main .tab-title,
+.workspace-tab-main .tab-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-tab-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-tab-main .tab-url {
+  min-width: 0;
+  word-break: normal;
+}
