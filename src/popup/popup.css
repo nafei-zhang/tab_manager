@@ -1,16 +1,67 @@
 :root {
   color-scheme: light dark;
   font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --scrollbar-size: 10px;
+  --scrollbar-track: rgba(15, 23, 42, 0.75);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.72);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.9);
 }
 
+html,
 body {
   margin: 0;
   width: 460px;
-  background: #111827;
+  background: transparent;
   color: #e5e7eb;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+body {
+  padding: 2px;
+  box-sizing: border-box;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+body::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+body::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+body::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+body::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .app {
+  background: #111827;
+  border-radius: 6px;
+  overflow: hidden;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -146,19 +197,17 @@ button:active,
 }
 
 .rule-grid {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
   font-size: 12px;
 }
 
 .rule-grid label {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   white-space: nowrap;
 }
 
