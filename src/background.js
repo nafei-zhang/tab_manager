@@ -61,7 +61,7 @@ async function saveCurrentWorkspace(name) {
   return { workspace, workspaces }
 }
 
-async function restoreWorkspace(workspaceId, selectedIndexes = null) {
+async function restoreWorkspace(workspaceId, selectedIndexes = null, groupInChrome = false) {
   const workspaces = await loadWorkspaces(ext.storage)
   const target = workspaces.find((item) => item.id === workspaceId)
   if (!target) {
@@ -72,13 +72,43 @@ async function restoreWorkspace(workspaceId, selectedIndexes = null) {
     ? target.tabs.filter((_, index) => selectedIndexes.includes(index))
     : target.tabs
 
+  const createdTabIds = []
   for (const tab of tabsToOpen) {
     if (tab.url) {
-      await ext.tabs.create({ url: tab.url, active: false, pinned: tab.pinned })
+      const created = await ext.tabs.create({ url: tab.url, active: false, pinned: tab.pinned })
+      if (Number.isInteger(created?.id)) {
+        createdTabIds.push(created.id)
+      }
     }
   }
 
-  return { restoredCount: tabsToOpen.length, workspace: target }
+  let grouped = false
+  let groupId = null
+  if (groupInChrome && createdTabIds.length > 1 && typeof ext.tabs.group === "function") {
+    try {
+      groupId = await ext.tabs.group({ tabIds: createdTabIds })
+      grouped = Number.isInteger(groupId)
+      if (grouped && typeof ext.tabGroups?.update === "function") {
+        await ext.tabGroups.update(groupId, {
+          title: (target.name || "").trim() || "Workspace",
+          color: "blue",
+          collapsed: false
+        })
+      }
+    } catch {
+      if (!Number.isInteger(groupId)) {
+        grouped = false
+        groupId = null
+      }
+    }
+  }
+
+  return {
+    restoredCount: createdTabIds.length,
+    workspace: target,
+    grouped,
+    groupId
+  }
 }
 
 function compareTabsByDomain(a, b) {
@@ -95,7 +125,7 @@ function compareTabsByDomain(a, b) {
   return (a.title || "").localeCompare(b.title || "")
 }
 
-async function organizeTabsByDomain() {
+async function organizeTabsByDomain(groupInChrome = false) {
   const tabs = await getAllTabs()
   const windows = new Map()
   for (const tab of tabs) {
@@ -107,6 +137,7 @@ async function organizeTabsByDomain() {
 
   let movedCount = 0
   let affectedWindows = 0
+  let groupedDomainCount = 0
 
   for (const [, list] of windows) {
     const ordered = [...list].sort((a, b) => a.index - b.index)
@@ -115,17 +146,47 @@ async function organizeTabsByDomain() {
     const desiredIds = [...pinned, ...normal].map((tab) => tab.id)
     const currentIds = ordered.map((tab) => tab.id)
     const changed = desiredIds.some((id, idx) => id !== currentIds[idx])
-    if (!changed) {
+    if (!changed && !groupInChrome) {
       continue
     }
-    affectedWindows += 1
-    for (const [targetIndex, tabId] of desiredIds.entries()) {
-      await ext.tabs.move(tabId, { index: targetIndex })
-      movedCount += 1
+    if (changed) {
+      affectedWindows += 1
+      for (const [targetIndex, tabId] of desiredIds.entries()) {
+        await ext.tabs.move(tabId, { index: targetIndex })
+        movedCount += 1
+      }
+    }
+
+    if (groupInChrome && typeof ext.tabs.group === "function") {
+      const domainBuckets = new Map()
+      for (const tab of normal) {
+        const domain = getDomain(tab.url || "") || "Other"
+        if (!domainBuckets.has(domain)) {
+          domainBuckets.set(domain, [])
+        }
+        domainBuckets.get(domain).push(tab.id)
+      }
+      for (const [domain, tabIds] of domainBuckets.entries()) {
+        if (!tabIds.length) {
+          continue
+        }
+        try {
+          const groupId = await ext.tabs.group({ tabIds })
+          if (Number.isInteger(groupId)) {
+            groupedDomainCount += 1
+            if (typeof ext.tabGroups?.update === "function") {
+              await ext.tabGroups.update(groupId, {
+                title: domain,
+                collapsed: false
+              })
+            }
+          }
+        } catch {}
+      }
     }
   }
 
-  return { movedCount, affectedWindows }
+  return { movedCount, affectedWindows, groupedDomainCount }
 }
 
 async function getFocusedTab() {
@@ -147,7 +208,7 @@ ext.runtime.onMessage.addListener((message, _, sendResponse) => {
         sendResponse({ ok: true, data: await closeDuplicates() })
         break
       case "ORGANIZE_BY_DOMAIN":
-        sendResponse({ ok: true, data: await organizeTabsByDomain() })
+        sendResponse({ ok: true, data: await organizeTabsByDomain(Boolean(message.groupInChrome)) })
         break
       case "SAVE_WORKSPACE":
         sendResponse({ ok: true, data: await saveCurrentWorkspace(message.name) })
@@ -169,7 +230,7 @@ ext.runtime.onMessage.addListener((message, _, sendResponse) => {
       case "RESTORE_WORKSPACE":
         sendResponse({
           ok: true,
-          data: await restoreWorkspace(message.workspaceId, message.selectedIndexes)
+          data: await restoreWorkspace(message.workspaceId, message.selectedIndexes, Boolean(message.groupInChrome))
         })
         break
       case "DELETE_WORKSPACE":

@@ -1,20 +1,30 @@
 # Tab Disaster Manager
 
-A Manifest V3 smart tab management extension for Chrome / Edge / Firefox.
+A Manifest V3 smart tab manager for Chrome / Edge / Firefox.
 
 中文版本: [README.zh.md](./README.zh.md)
 
-## Why This Project
+## What It Solves
 
-When tab count grows fast, the common pain points are:
+When tab count grows, people usually hit these issues:
 
-- Too many duplicate pages
-- Tabs scattered across multiple contexts
-- Hard to jump back to a previous working session
+- Duplicate pages are hard to clean quickly
+- Tabs are scattered and difficult to navigate
+- Switching tasks makes it hard to return to previous context
 
-Tab Disaster Manager is designed to keep high-tab workflows manageable by making tab cleanup, lookup, and restore fast.
+Tab Disaster Manager focuses on three actions: clean, find, and restore.
 
-## Feature Overview
+## Main UI Structure
+
+The popup is split into 3 tabs:
+
+1. Cleanup & Search
+2. Domain Groups
+3. Workspaces
+
+This keeps high-density features separated while preserving a consistent popup height and scrolling behavior.
+
+## Features
 
 ### 1) Duplicate Cleanup
 
@@ -26,54 +36,42 @@ Tab Disaster Manager is designed to keep high-tab workflows manageable by making
   - `www`
 - One-click duplicate cleanup while keeping the earliest original tab
 
-### 2) Domain Grouping & Sorting
+### 2) Domain Groups
 
-- Automatic domain-based grouping
-- Expand/collapse per group
-- Per-group tab count and estimated memory
-- One-click domain sorting that applies directly to browser tab order
+- Auto aggregation by domain with expand/collapse
+- Group card metadata: tab count + estimated memory
+- Quick actions per tab: switch / close
+- One-click organize modes:
+  - Unchecked `Group organize`: keep classic behavior, reorder tabs by domain
+  - Checked `Group organize`: use Chrome native tab groups, one group per domain
+  - Group title is the domain name
 
 ### 3) Search & Quick Actions
 
-- Search modes:
-  - Normal
-  - Fuzzy
-  - Regex
-- Highlighted results for faster scanning
+- Search modes: Normal / Fuzzy / Regex
+- Match highlight in title and URL
 - Per-result actions:
   - Switch to tab
   - Close tab
 
 ### 4) Workspace Management
 
-- Save current tab set as workspace
-- Restore all records or selected records
-- JSON import/export
-- Per-record operations:
-  - Open record
-  - Remove from workspace list only (without closing opened page)
-- One-click add of the currently focused page to a workspace
+- Save current tabs as a workspace
+- Expand/collapse workspace cards
+- Add focused tab to a workspace with `+`
+- Remove single record from workspace list (without closing opened pages)
+- Import/export workspace JSON
+- Restore modes:
+  - Unchecked `Group open`: open restored tabs normally
+  - Checked `Group open`: restore into Chrome native tab group
+  - Group title is the workspace name
 
-## Typical Workflows
+## UI/UX Updates
 
-### Workflow A: Clean first, then focus
-
-1. Open popup
-2. Run duplicate cleanup
-3. Run domain organize
-4. Use search to jump to target tabs
-
-### Workflow B: Task snapshot
-
-1. Save current tabs as workspace before context switch
-2. Work on another task
-3. Restore selected records to continue where you left off
-
-### Workflow C: Ongoing collection
-
-1. While browsing, find a useful page
-2. Click `+` in target workspace to add focused page
-3. Restore/export later for follow-up
+- Optimized scrollbar styling for Windows Chrome
+- Better popup spacing and layout consistency across tabs
+- Domain and workspace panels fill available popup height and use internal scrolling
+- Refined extension icons across all required sizes (16/32/48/128)
 
 ## Setup
 
@@ -119,10 +117,11 @@ docs/
 
 ## Technical Notes
 
-- Plain JavaScript (ES modules), lightweight architecture
+- Plain JavaScript (ES modules)
 - Popup handles interaction, background service worker handles orchestration
-- `storage.local` used for persistence
-- Cross-browser API compatibility with `browser ?? chrome`
+- `storage.local` is used for workspace and rule persistence
+- Cross-browser API compatibility via `browser ?? chrome`
+- Chrome group-related features rely on `tabs` + `tabGroups` permissions
 - Unit tests cover core logic (grouping, URL utilities, workspace store)
 
 ## Documentation
@@ -134,11 +133,5 @@ docs/
 ## Known Notes
 
 - Firefox temporary loading needs reloading after browser restart
-- Popup size rendering may vary slightly between browsers
 - Some system pages (for example `chrome://`) have browser API limitations
-
-## Suggested Next Improvements
-
-- Organize scope switch: current window vs all windows
-- Workspace rename, drag-sort, enhanced dedupe policies
-- Keyboard shortcut and command palette integration
+- Native tab-group behavior depends on browser support and permissions

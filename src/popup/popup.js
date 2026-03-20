@@ -16,13 +16,75 @@ const state = {
   workspaceExpandInitialized: false,
   searchQuery: "",
   searchMode: "normal",
-  expandedGroups: new Set()
+  expandedGroups: new Set(),
+  activePanel: "overview"
 }
 
 const $ = (id) => document.getElementById(id)
 
 function setStatus(message) {
   $("statusText").textContent = message
+}
+
+function syncPanelHeightWithOverview() {
+  const app = document.querySelector(".app")
+  const overviewPanel = document.querySelector('.panel[data-panel-content="overview"]')
+  if (!app || !overviewPanel) {
+    return
+  }
+  const previousStyle = overviewPanel.getAttribute("style") || ""
+  const active = overviewPanel.classList.contains("is-active")
+  if (!active) {
+    overviewPanel.style.display = "flex"
+    overviewPanel.style.visibility = "hidden"
+    overviewPanel.style.position = "absolute"
+    overviewPanel.style.inset = "0"
+    overviewPanel.style.pointerEvents = "none"
+  }
+  const panelHeight = Math.ceil(overviewPanel.scrollHeight)
+  if (!active) {
+    if (previousStyle) {
+      overviewPanel.setAttribute("style", previousStyle)
+    } else {
+      overviewPanel.removeAttribute("style")
+    }
+  }
+  if (panelHeight > 0) {
+    app.style.setProperty("--panel-fixed-height", `${panelHeight}px`)
+  }
+}
+
+function syncFillPanelsToViewport() {
+  const app = document.querySelector(".app")
+  const header = document.querySelector(".header")
+  const tabs = document.querySelector(".main-tabs")
+  const status = $("statusText")
+  if (!app || !header || !tabs || !status) {
+    return
+  }
+  const appStyle = globalThis.getComputedStyle(app)
+  const gap = Number.parseFloat(appStyle.gap || "0") || 0
+  const paddingTop = Number.parseFloat(appStyle.paddingTop || "0") || 0
+  const paddingBottom = Number.parseFloat(appStyle.paddingBottom || "0") || 0
+  const occupiedHeight = header.offsetHeight + tabs.offsetHeight + status.offsetHeight + gap * 3 + paddingTop + paddingBottom
+  const availableHeight = Math.floor(globalThis.innerHeight - occupiedHeight)
+  if (availableHeight > 0) {
+    app.style.setProperty("--panel-fill-height", `${availableHeight}px`)
+  }
+}
+
+function renderMainPanels() {
+  document.querySelectorAll(".main-tab-btn[data-panel-target]").forEach((button) => {
+    const target = button.getAttribute("data-panel-target")
+    const active = target === state.activePanel
+    button.classList.toggle("active", active)
+  })
+  document.querySelectorAll(".panel[data-panel-content]").forEach((panel) => {
+    const panelName = panel.getAttribute("data-panel-content")
+    const active = panelName === state.activePanel
+    panel.classList.toggle("is-active", active)
+  })
+  syncFillPanelsToViewport()
 }
 
 function escapeHtml(text) {
@@ -88,6 +150,8 @@ async function refreshSnapshot() {
   $("ignoreWww").checked = Boolean(data.duplicateRules.ignoreWww)
   renderGroups()
   renderSearchResults()
+  syncPanelHeightWithOverview()
+  syncFillPanelsToViewport()
 }
 
 async function refreshWorkspaces() {
@@ -105,6 +169,7 @@ async function refreshWorkspaces() {
     }
   }
   renderWorkspaces()
+  syncFillPanelsToViewport()
 }
 
 function renderGroups() {
@@ -287,6 +352,69 @@ async function organizeTabsByDomainFallback() {
   return { movedCount, affectedWindows }
 }
 
+async function organizeTabsByDomainWithChromeGroups() {
+  const tabs = await ext.tabs.query({})
+  const windows = new Map()
+  for (const tab of tabs) {
+    if (!windows.has(tab.windowId)) {
+      windows.set(tab.windowId, [])
+    }
+    windows.get(tab.windowId).push(tab)
+  }
+
+  let movedCount = 0
+  let affectedWindows = 0
+  let groupedDomainCount = 0
+
+  for (const [, list] of windows) {
+    const ordered = [...list].sort((a, b) => a.index - b.index)
+    const pinned = ordered.filter((tab) => Boolean(tab.pinned)).sort(compareTabsByDomain)
+    const normal = ordered.filter((tab) => !tab.pinned).sort(compareTabsByDomain)
+    const desiredIds = [...pinned, ...normal].map((tab) => tab.id)
+    const currentIds = ordered.map((tab) => tab.id)
+    const changed = desiredIds.some((id, idx) => id !== currentIds[idx])
+    if (changed) {
+      affectedWindows += 1
+      for (const [targetIndex, tabId] of desiredIds.entries()) {
+        await ext.tabs.move(tabId, { index: targetIndex })
+        movedCount += 1
+      }
+    }
+
+    if (typeof ext.tabs.group !== "function") {
+      continue
+    }
+    const domainBuckets = new Map()
+    for (const tab of normal) {
+      const domain = getDomain(tab.url || "") || "Other"
+      if (!domainBuckets.has(domain)) {
+        domainBuckets.set(domain, [])
+      }
+      domainBuckets.get(domain).push(tab.id)
+    }
+
+    for (const [domain, tabIds] of domainBuckets.entries()) {
+      if (!tabIds.length) {
+        continue
+      }
+      try {
+        const groupId = await ext.tabs.group({ tabIds })
+        if (Number.isInteger(groupId)) {
+          groupedDomainCount += 1
+          if (typeof ext.tabGroups?.update === "function") {
+            await ext.tabGroups.update(groupId, {
+              title: domain,
+              collapsed: false
+            })
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return { movedCount, affectedWindows, groupedDomainCount }
+}
+
 function removeWorkspaceTabFromList(workspaces, workspaceId, tabIndex, tabUrl) {
   let removed = false
   const next = workspaces.map((workspace) => {
@@ -404,6 +532,10 @@ function renderWorkspaces() {
           </div>
           <div class="row gap workspace-footer-actions">
             <button data-action="open-workspace" data-id="${workspace.id}">Restore selected</button>
+            <label class="workspace-group-toggle">
+              <input type="checkbox" data-role="group-open" data-id="${workspace.id}" />
+              Group open
+            </label>
             <button data-action="remove-workspace" data-id="${workspace.id}">Remove workspace</button>
           </div>
         </div>
@@ -445,7 +577,11 @@ function renderWorkspaces() {
             workspaceId,
             selectedIndexes: [tabIndex]
           })
-          setStatus(`Opened ${result.restoredCount} record(s)`)
+          setStatus(
+            result.grouped
+              ? `Opened ${result.restoredCount} record(s) in a Chrome tab group`
+              : `Opened ${result.restoredCount} record(s)`
+          )
         } else if (action === "remove-tab") {
           const tabIndex = Number(button.getAttribute("data-index"))
           let tabUrl = ""
@@ -466,11 +602,19 @@ function renderWorkspaces() {
           await refreshSnapshot()
           setStatus("Removed record from tab list")
         } else if (action === "open-workspace") {
+          const workspaceCard = button.closest(".workspace")
+          const groupOpenInput = workspaceCard?.querySelector('input[type="checkbox"][data-role="group-open"]')
+          const groupInChrome = Boolean(groupOpenInput?.checked)
           const result = await sendMessage({
             type: "RESTORE_WORKSPACE",
-            workspaceId
+            workspaceId,
+            groupInChrome
           })
-          setStatus(`Restored ${result.restoredCount} tab(s)`)
+          setStatus(
+            result.grouped
+              ? `Restored ${result.restoredCount} tab(s) in a Chrome tab group`
+              : `Restored ${result.restoredCount} tab(s)`
+          )
         } else if (action === "remove-workspace") {
           await sendMessage({ type: "DELETE_WORKSPACE", workspaceId })
           await refreshWorkspaces()
@@ -484,6 +628,22 @@ function renderWorkspaces() {
 }
 
 function bindEvents() {
+  globalThis.addEventListener("resize", () => {
+    syncPanelHeightWithOverview()
+    syncFillPanelsToViewport()
+  })
+
+  document.querySelectorAll(".main-tab-btn[data-panel-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.getAttribute("data-panel-target")
+      if (!target || target === state.activePanel) {
+        return
+      }
+      state.activePanel = target
+      renderMainPanels()
+    })
+  })
+
   $("refreshBtn").addEventListener("click", async () => {
     await refreshSnapshot()
     await refreshWorkspaces()
@@ -498,9 +658,18 @@ function bindEvents() {
 
   $("organizeDomainBtn").addEventListener("click", async () => {
     try {
-      const result = await organizeTabsByDomainFallback()
+      const groupInChrome = Boolean($("organizeDomainGroupOpen")?.checked)
+      const result = groupInChrome
+        ? await organizeTabsByDomainWithChromeGroups()
+        : await organizeTabsByDomainFallback()
       await refreshSnapshot()
-      setStatus(`Organized by domain: ${result.affectedWindows} window(s), ${result.movedCount} tab move(s)`)
+      if (groupInChrome) {
+        setStatus(
+          `Grouped by domain: ${result.groupedDomainCount} group(s), ${result.affectedWindows} window(s), ${result.movedCount} tab move(s)`
+        )
+      } else {
+        setStatus(`Organized by domain: ${result.affectedWindows} window(s), ${result.movedCount} tab move(s)`)
+      }
     } catch (error) {
       setStatus(error.message || "Organize failed")
     }
@@ -568,6 +737,8 @@ function bindEvents() {
 async function bootstrap() {
   try {
     bindEvents()
+    renderMainPanels()
+    syncFillPanelsToViewport()
     await refreshSnapshot()
     await refreshWorkspaces()
     setStatus("Ready")

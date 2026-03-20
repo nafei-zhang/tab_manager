@@ -11,14 +11,14 @@ html,
 body {
   margin: 0;
   width: 460px;
-  background: transparent;
+  background: #111827;
   color: #e5e7eb;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 body {
-  padding: 2px;
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -91,6 +91,58 @@ h2 {
 
 .row.gap {
   gap: 6px;
+}
+
+.main-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.main-tab-btn {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #cbd5e1;
+}
+
+.main-tab-btn.active {
+  background: #1d4ed8;
+  border-color: #3b82f6;
+  color: #eff6ff;
+}
+
+.panel {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  height: var(--panel-fixed-height, auto);
+  overflow: hidden;
+}
+
+.panel.is-active {
+  display: flex;
+}
+
+.panel[data-panel-content="domain"],
+.panel[data-panel-content="workspaces"] {
+  height: var(--panel-fill-height, var(--panel-fixed-height, auto));
+}
+
+.panel[data-panel-content="domain"] .card,
+.panel[data-panel-content="workspaces"] .card {
+  flex: 1;
+  min-height: 0;
+}
+
+.panel[data-panel-content="domain"] .groups,
+.panel[data-panel-content="workspaces"] .workspace-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .workspace-create-row {
@@ -385,4 +437,47 @@ mark {
 .workspace-tab-main .tab-url {
   min-width: 0;
   word-break: normal;
+}
+
+.workspace-footer-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-footer-actions button[data-action="remove-workspace"] {
+  margin-left: auto;
+}
+
+.workspace-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.workspace-group-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+.domain-organize-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.domain-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.domain-group-toggle input[type="checkbox"] {
+  margin: 0;
 }
