@@ -523,6 +523,7 @@ mark {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .workspace-footer-actions button[data-action="remove-workspace"] {
@@ -559,4 +560,29 @@ mark {
 
 .domain-group-toggle input[type="checkbox"] {
   margin: 0;
+}
+
+.domain-ignore-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.domain-ignore-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+.domain-ignore-toggle span {
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
+.domain-ignore-toggle input:not(:disabled) + span {
+  color: var(--accent);
+}
+
+.domain-ignore-toggle input:disabled + span {
+  color: var(--text-muted);
 }

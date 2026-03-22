@@ -1,5 +1,13 @@
 import { searchTabs } from "../core/tab-manager.js"
 import { getDomain } from "../core/url-utils.js"
+import {
+  IGNORE_WORKSPACE_TEMP_KEYS,
+  USER_PREFS_KEY,
+  createChromeGroupOrganizePlan,
+  pickTabsForDomainGrouping,
+  resolveIgnoreWorkspaceState,
+  shouldSkipWorkspaceGroupDetection
+} from "../core/organize-options.js"
 
 const ext = globalThis.browser ?? globalThis.chrome
 
@@ -17,7 +25,11 @@ const state = {
   searchQuery: "",
   searchMode: "normal",
   expandedGroups: new Set(),
-  activePanel: "overview"
+  activePanel: "overview",
+  organizePrefs: {
+    cbGroup: false,
+    cbIgnoreWorkspace: false
+  }
 }
 
 const $ = (id) => document.getElementById(id)
@@ -137,6 +149,79 @@ function sendMessage(payload) {
       resolve(response.data)
     })
   })
+}
+
+function getStorageLocal() {
+  return ext.storage?.local ?? null
+}
+
+function getGroupCheckbox() {
+  return $("cbGroup") || $("organizeDomainGroupOpen")
+}
+
+function getIgnoreWorkspaceCheckbox() {
+  return $("cbIgnoreWorkspace")
+}
+
+function applyOrganizeControlState(controlState) {
+  const groupInput = getGroupCheckbox()
+  const ignoreInput = getIgnoreWorkspaceCheckbox()
+  if (groupInput) {
+    groupInput.checked = Boolean(controlState.groupChecked)
+  }
+  if (ignoreInput) {
+    ignoreInput.disabled = !controlState.ignoreWorkspaceEnabled
+    ignoreInput.checked = Boolean(controlState.ignoreWorkspaceChecked)
+  }
+  state.organizePrefs = {
+    cbGroup: Boolean(controlState.groupChecked),
+    cbIgnoreWorkspace: Boolean(controlState.ignoreWorkspaceChecked)
+  }
+}
+
+async function readUserPrefs() {
+  const storageLocal = getStorageLocal()
+  if (!storageLocal?.get) {
+    return {}
+  }
+  const payload = await storageLocal.get(USER_PREFS_KEY)
+  const prefs = payload?.[USER_PREFS_KEY]
+  if (!prefs || typeof prefs !== "object") {
+    return {}
+  }
+  return prefs
+}
+
+async function writeUserPrefs(partial) {
+  const storageLocal = getStorageLocal()
+  if (!storageLocal?.set) {
+    return
+  }
+  const current = await readUserPrefs()
+  await storageLocal.set({
+    [USER_PREFS_KEY]: {
+      ...current,
+      ...partial
+    }
+  })
+}
+
+async function clearIgnoreWorkspaceTemporaryState() {
+  state.organizePrefs.cbIgnoreWorkspace = false
+  const storageLocal = getStorageLocal()
+  if (!storageLocal?.remove) {
+    await writeUserPrefs({ cbIgnoreWorkspace: false })
+    return
+  }
+  await storageLocal.remove(IGNORE_WORKSPACE_TEMP_KEYS)
+  await writeUserPrefs({ cbIgnoreWorkspace: false })
+}
+
+async function restoreOrganizePreferences() {
+  const controlState = resolveIgnoreWorkspaceState(false, false)
+  applyOrganizeControlState(controlState)
+  await clearIgnoreWorkspaceTemporaryState()
+  await writeUserPrefs({ cbGroup: false, cbIgnoreWorkspace: false })
 }
 
 async function refreshSnapshot() {
@@ -319,6 +404,11 @@ function compareTabsByDomain(a, b) {
   return (a.title || "").localeCompare(b.title || "")
 }
 
+function isWorkspaceGroupedTab(tab) {
+  const groupId = Number(tab?.groupId)
+  return Number.isInteger(groupId) && groupId >= 0
+}
+
 async function organizeTabsByDomainFallback() {
   const tabs = await ext.tabs.query({})
   const windows = new Map()
@@ -352,7 +442,8 @@ async function organizeTabsByDomainFallback() {
   return { movedCount, affectedWindows }
 }
 
-async function organizeTabsByDomainWithChromeGroups() {
+async function organizeTabsByDomainWithChromeGroups(options = {}) {
+  const ignoreWorkspace = Boolean(options.ignoreWorkspace)
   const tabs = await ext.tabs.query({})
   const windows = new Map()
   for (const tab of tabs) {
@@ -365,17 +456,34 @@ async function organizeTabsByDomainWithChromeGroups() {
   let movedCount = 0
   let affectedWindows = 0
   let groupedDomainCount = 0
+  let workspaceGroupCount = 0
 
   for (const [, list] of windows) {
     const ordered = [...list].sort((a, b) => a.index - b.index)
     const pinned = ordered.filter((tab) => Boolean(tab.pinned)).sort(compareTabsByDomain)
-    const normal = ordered.filter((tab) => !tab.pinned).sort(compareTabsByDomain)
+    const normalOrdered = ordered.filter((tab) => !tab.pinned)
+    const ungroupedSorted = pickTabsForDomainGrouping(normalOrdered, { ignoreWorkspace }).sort(compareTabsByDomain)
+    const normal = ignoreWorkspace
+      ? (() => {
+          const nextUngrouped = [...ungroupedSorted]
+          return normalOrdered.map((tab) => {
+            if (isWorkspaceGroupedTab(tab)) {
+              return tab
+            }
+            return nextUngrouped.shift()
+          })
+        })()
+      : ungroupedSorted
     const desiredIds = [...pinned, ...normal].map((tab) => tab.id)
     const currentIds = ordered.map((tab) => tab.id)
     const changed = desiredIds.some((id, idx) => id !== currentIds[idx])
     if (changed) {
+      const groupedIds = new Set(ignoreWorkspace ? normalOrdered.filter(isWorkspaceGroupedTab).map((tab) => tab.id) : [])
       affectedWindows += 1
       for (const [targetIndex, tabId] of desiredIds.entries()) {
+        if (ignoreWorkspace && groupedIds.has(tabId)) {
+          continue
+        }
         await ext.tabs.move(tabId, { index: targetIndex })
         movedCount += 1
       }
@@ -384,8 +492,11 @@ async function organizeTabsByDomainWithChromeGroups() {
     if (typeof ext.tabs.group !== "function") {
       continue
     }
+    const organizePlan = createChromeGroupOrganizePlan(normalOrdered, { ignoreWorkspace })
+    workspaceGroupCount += organizePlan.workspaceGroupCount
     const domainBuckets = new Map()
-    for (const tab of normal) {
+    const tabsForGrouping = ignoreWorkspace ? ungroupedSorted : normal
+    for (const tab of tabsForGrouping) {
       const domain = getDomain(tab.url || "") || "Other"
       if (!domainBuckets.has(domain)) {
         domainBuckets.set(domain, [])
@@ -412,7 +523,13 @@ async function organizeTabsByDomainWithChromeGroups() {
     }
   }
 
-  return { movedCount, affectedWindows, groupedDomainCount }
+  return {
+    movedCount,
+    affectedWindows,
+    groupedDomainCount,
+    workspaceGroupCount,
+    skippedWorkspaceGroupDetection: Boolean(ignoreWorkspace)
+  }
 }
 
 function removeWorkspaceTabFromList(workspaces, workspaceId, tabIndex, tabUrl) {
@@ -658,15 +775,18 @@ function bindEvents() {
 
   $("organizeDomainBtn").addEventListener("click", async () => {
     try {
-      const groupInChrome = Boolean($("organizeDomainGroupOpen")?.checked)
+      const groupInChrome = Boolean(getGroupCheckbox()?.checked)
+      const ignoreWorkspaceChecked = Boolean(getIgnoreWorkspaceCheckbox()?.checked)
+      const ignoreWorkspace = shouldSkipWorkspaceGroupDetection(groupInChrome, ignoreWorkspaceChecked)
       const result = groupInChrome
-        ? await organizeTabsByDomainWithChromeGroups()
+        ? await organizeTabsByDomainWithChromeGroups({ ignoreWorkspace })
         : await organizeTabsByDomainFallback()
       await refreshSnapshot()
       if (groupInChrome) {
-        setStatus(
-          `Grouped by domain: ${result.groupedDomainCount} group(s), ${result.affectedWindows} window(s), ${result.movedCount} tab move(s)`
-        )
+        const statusPrefix = result.skippedWorkspaceGroupDetection
+          ? "Grouped by domain (ignore workspace)"
+          : "Grouped by domain"
+        setStatus(`${statusPrefix}: ${result.groupedDomainCount} group(s), ${result.affectedWindows} window(s), ${result.movedCount} tab move(s)`)
       } else {
         setStatus(`Organized by domain: ${result.affectedWindows} window(s), ${result.movedCount} tab move(s)`)
       }
@@ -689,6 +809,50 @@ function bindEvents() {
       await refreshSnapshot()
       setStatus("Duplicate rules updated")
     })
+  })
+
+  getGroupCheckbox()?.addEventListener("change", async () => {
+    const groupChecked = Boolean(getGroupCheckbox()?.checked)
+    if (!groupChecked) {
+      const controlState = resolveIgnoreWorkspaceState(false, false)
+      applyOrganizeControlState(controlState)
+      await clearIgnoreWorkspaceTemporaryState()
+      await writeUserPrefs({ cbGroup: false, cbIgnoreWorkspace: false })
+      return
+    }
+    const controlState = resolveIgnoreWorkspaceState(true, getIgnoreWorkspaceCheckbox()?.checked)
+    applyOrganizeControlState(controlState)
+    await writeUserPrefs({
+      cbGroup: controlState.groupChecked,
+      cbIgnoreWorkspace: controlState.ignoreWorkspaceChecked
+    })
+  })
+
+  getIgnoreWorkspaceCheckbox()?.addEventListener("change", async () => {
+    const groupChecked = Boolean(getGroupCheckbox()?.checked)
+    const requested = Boolean(getIgnoreWorkspaceCheckbox()?.checked)
+    const controlState = resolveIgnoreWorkspaceState(groupChecked, requested)
+    applyOrganizeControlState(controlState)
+    await writeUserPrefs({
+      cbGroup: controlState.groupChecked,
+      cbIgnoreWorkspace: controlState.ignoreWorkspaceChecked
+    })
+    const storageLocal = getStorageLocal()
+    if (!storageLocal) {
+      return
+    }
+    if (controlState.ignoreWorkspaceChecked) {
+      await storageLocal.set({
+        ignoreWorkspaceTempConfig: {
+          updatedAt: Date.now()
+        },
+        ignoreWorkspaceSessionCache: {
+          enabled: true
+        }
+      })
+      return
+    }
+    await storageLocal.remove(IGNORE_WORKSPACE_TEMP_KEYS)
   })
 
   $("searchInput").addEventListener("input", () => {
@@ -736,6 +900,7 @@ function bindEvents() {
 
 async function bootstrap() {
   try {
+    await restoreOrganizePreferences()
     bindEvents()
     renderMainPanels()
     syncFillPanelsToViewport()

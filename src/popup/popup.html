@@ -52,13 +52,17 @@
         <section class="card">
           <h2>Domain Groups</h2>
           <div class="row">
-            <span class="group-meta">Organize tabs by domain</span>
+            <span class="group-meta">By domain</span>
             <div class="domain-organize-actions">
               <label class="domain-group-toggle">
-                <input id="organizeDomainGroupOpen" type="checkbox" />
-                Group organize
+                <input id="cbGroup" type="checkbox" />
+                Group
               </label>
-              <button id="organizeDomainBtn" type="button">One-click Organize</button>
+              <label class="domain-ignore-toggle">
+                <input id="cbIgnoreWorkspace" type="checkbox" disabled />
+                <span>Ignore WS</span>
+              </label>
+              <button id="organizeDomainBtn" type="button">Organize</button>
             </div>
           </div>
           <div id="groupContainer" class="groups"></div>
