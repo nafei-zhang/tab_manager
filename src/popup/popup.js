@@ -20,6 +20,7 @@ const state = {
     duplicateRules: {}
   },
   workspaces: [],
+  workspaceOpenTabIds: new Map(),
   workspaceExpandedIds: new Set(),
   workspaceExpandInitialized: false,
   searchQuery: "",
@@ -241,6 +242,7 @@ async function refreshSnapshot() {
 
 async function refreshWorkspaces() {
   state.workspaces = await sendMessage({ type: "LIST_WORKSPACES" })
+  state.workspaceOpenTabIds = await getWorkspaceOpenTabIds(state.workspaces)
   if (!state.workspaceExpandInitialized) {
     state.workspaceExpandedIds = new Set(state.workspaces.map((workspace) => workspace.id))
     state.workspaceExpandInitialized = true
@@ -257,6 +259,38 @@ async function refreshWorkspaces() {
   syncFillPanelsToViewport()
 }
 
+async function getWorkspaceOpenTabIds(workspaces) {
+  const tabs = await ext.tabs.query({})
+  const tabIdsByUrl = new Map()
+  for (const tab of tabs) {
+    const url = tab.url || ""
+    if (!url) {
+      continue
+    }
+    if (!tabIdsByUrl.has(url)) {
+      tabIdsByUrl.set(url, [])
+    }
+    tabIdsByUrl.get(url).push(tab.id)
+  }
+  const index = new Map()
+  for (const workspace of workspaces) {
+    const urls = new Set(
+      (Array.isArray(workspace.tabs) ? workspace.tabs : [])
+        .map((tab) => tab?.url || "")
+        .filter(Boolean)
+    )
+    const tabIds = []
+    for (const url of urls) {
+      const matched = tabIdsByUrl.get(url)
+      if (matched?.length) {
+        tabIds.push(...matched)
+      }
+    }
+    index.set(workspace.id, [...new Set(tabIds)])
+  }
+  return index
+}
+
 function renderGroups() {
   const root = $("groupContainer")
   root.innerHTML = ""
@@ -267,7 +301,11 @@ function renderGroups() {
     card.innerHTML = `
       <div class="group-header">
         <strong>${escapeHtml(group.domain)}</strong>
-        <button class="icon-btn workspace-icon-btn" data-domain="${escapeHtml(group.domain)}" title="${expanded ? "Collapse" : "Expand"}">${expanded ? "▴" : "▾"}</button>
+        <div class="group-header-actions">
+          <button class="group-domain-btn" data-action="group-domain" data-domain="${escapeHtml(group.domain)}" type="button">Group</button>
+          <button class="group-domain-btn" data-action="ungroup-domain" data-domain="${escapeHtml(group.domain)}" type="button">Ungroup</button>
+          <button class="icon-btn workspace-icon-btn" data-action="toggle-domain" data-domain="${escapeHtml(group.domain)}" title="${expanded ? "Collapse" : "Expand"}">${expanded ? "▴" : "▾"}</button>
+        </div>
       </div>
       <div class="group-meta">Tabs ${group.tabCount} | Estimated memory ${group.estimatedMemoryMb} MB</div>
       <div class="tab-list" style="display:${expanded ? "flex" : "none"};">
@@ -292,7 +330,7 @@ function renderGroups() {
     root.appendChild(card)
   }
 
-  root.querySelectorAll("button[data-domain]").forEach((btn) => {
+  root.querySelectorAll('button[data-action="toggle-domain"][data-domain]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const domain = btn.getAttribute("data-domain")
       if (!domain) {
@@ -304,6 +342,31 @@ function renderGroups() {
         state.expandedGroups.add(domain)
       }
       renderGroups()
+    })
+  })
+
+  root.querySelectorAll('button.group-domain-btn[data-action][data-domain]').forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const action = button.getAttribute("data-action")
+      const domain = button.getAttribute("data-domain")
+      if (!domain) {
+        return
+      }
+      try {
+        if (action === "group-domain") {
+          const result = await groupTabsForDomain(domain)
+          await refreshSnapshot()
+          setStatus(`Domain ${domain}: grouped ${result.groupedTabCount} tab(s)`)
+        } else if (action === "ungroup-domain") {
+          const result = await ungroupTabsForDomain(domain)
+          await refreshSnapshot()
+          setStatus(`Domain ${domain}: ungrouped ${result.ungroupedTabCount} tab(s)`)
+        }
+      } catch (error) {
+        setStatus(error.message || "Domain action failed")
+      }
     })
   })
 
@@ -388,6 +451,42 @@ async function closeSearchTab(tabId) {
   await ext.tabs.remove(tabId)
   await refreshSnapshot()
   setStatus("Closed current tab")
+}
+
+async function groupTabsForDomain(domain) {
+  if (typeof ext.tabs.group !== "function") {
+    return { groupedTabCount: 0 }
+  }
+  const tabs = await ext.tabs.query({})
+  const tabIds = tabs
+    .filter((tab) => !tab.pinned && (getDomain(tab.url || "") || "Other") === domain)
+    .map((tab) => tab.id)
+  if (!tabIds.length) {
+    return { groupedTabCount: 0 }
+  }
+  const groupId = await ext.tabs.group({ tabIds })
+  if (Number.isInteger(groupId) && typeof ext.tabGroups?.update === "function") {
+    await ext.tabGroups.update(groupId, {
+      title: domain,
+      collapsed: false
+    })
+  }
+  return { groupedTabCount: tabIds.length }
+}
+
+async function ungroupTabsForDomain(domain) {
+  if (typeof ext.tabs.ungroup !== "function") {
+    return { ungroupedTabCount: 0 }
+  }
+  const tabs = await ext.tabs.query({})
+  const tabIds = tabs
+    .filter((tab) => !tab.pinned && Number.isInteger(tab.groupId) && tab.groupId >= 0 && (getDomain(tab.url || "") || "Other") === domain)
+    .map((tab) => tab.id)
+  if (!tabIds.length) {
+    return { ungroupedTabCount: 0 }
+  }
+  await ext.tabs.ungroup(tabIds)
+  return { ungroupedTabCount: tabIds.length }
 }
 
 function compareTabsByDomain(a, b) {
@@ -532,6 +631,53 @@ async function organizeTabsByDomainWithChromeGroups(options = {}) {
   }
 }
 
+async function ungroupDomainOrganizedTabs() {
+  if (typeof ext.tabs.ungroup !== "function") {
+    return { ungroupedGroupCount: 0, ungroupedTabCount: 0 }
+  }
+  const tabs = await ext.tabs.query({})
+  const groupedTabs = tabs.filter((tab) => Number.isInteger(tab.groupId) && tab.groupId >= 0)
+  const groups = new Map()
+  for (const tab of groupedTabs) {
+    if (!groups.has(tab.groupId)) {
+      groups.set(tab.groupId, [])
+    }
+    groups.get(tab.groupId).push(tab)
+  }
+  let ungroupedGroupCount = 0
+  let ungroupedTabCount = 0
+  for (const [groupId, groupTabs] of groups) {
+    if (!groupTabs.length) {
+      continue
+    }
+    const domains = new Set(groupTabs.map((tab) => getDomain(tab.url || "") || "Other"))
+    if (domains.size !== 1) {
+      continue
+    }
+    if (typeof ext.tabGroups?.get !== "function") {
+      continue
+    }
+    let shouldUngroup = false
+    try {
+      const tabGroup = await ext.tabGroups.get(groupId)
+      const title = String(tabGroup?.title || "").trim()
+      shouldUngroup = title === [...domains][0]
+    } catch {
+      shouldUngroup = false
+    }
+    if (!shouldUngroup) {
+      continue
+    }
+    const tabIds = groupTabs.map((tab) => tab.id)
+    try {
+      await ext.tabs.ungroup(tabIds)
+      ungroupedGroupCount += 1
+      ungroupedTabCount += tabIds.length
+    } catch {}
+  }
+  return { ungroupedGroupCount, ungroupedTabCount }
+}
+
 function removeWorkspaceTabFromList(workspaces, workspaceId, tabIndex, tabUrl) {
   let removed = false
   const next = workspaces.map((workspace) => {
@@ -608,12 +754,106 @@ async function addFocusedTabToWorkspaceWithFallback(workspaceId) {
   return { added: true, workspaces: next }
 }
 
+function findWorkspaceById(workspaceId) {
+  return state.workspaces.find((workspace) => workspace.id === workspaceId) || null
+}
+
+function getWorkspaceRecordUrls(workspace) {
+  return new Set(
+    (Array.isArray(workspace?.tabs) ? workspace.tabs : [])
+      .map((tab) => tab?.url || "")
+      .filter(Boolean)
+  )
+}
+
+async function groupWorkspaceInChrome(workspaceId) {
+  const workspace = findWorkspaceById(workspaceId)
+  if (!workspace || typeof ext.tabs.group !== "function") {
+    return { groupedTabCount: 0, grouped: false }
+  }
+  const workspaceUrls = getWorkspaceRecordUrls(workspace)
+  if (!workspaceUrls.size) {
+    return { groupedTabCount: 0, grouped: false }
+  }
+  const beforeTabs = await ext.tabs.query({})
+  const beforeTabsByUrl = new Map()
+  for (const tab of beforeTabs) {
+    const url = tab.url || ""
+    if (!workspaceUrls.has(url)) {
+      continue
+    }
+    if (!beforeTabsByUrl.has(url)) {
+      beforeTabsByUrl.set(url, [])
+    }
+    beforeTabsByUrl.get(url).push(tab.id)
+  }
+  const missingIndexes = (Array.isArray(workspace.tabs) ? workspace.tabs : [])
+    .map((tab, index) => ({ url: tab?.url || "", index }))
+    .filter((item) => item.url && !beforeTabsByUrl.has(item.url))
+    .map((item) => item.index)
+  if (missingIndexes.length) {
+    await sendMessage({
+      type: "RESTORE_WORKSPACE",
+      workspaceId,
+      selectedIndexes: missingIndexes,
+      groupInChrome: false
+    })
+  }
+  const allTabs = await ext.tabs.query({})
+  const tabIds = allTabs.filter((tab) => workspaceUrls.has(tab.url || "")).map((tab) => tab.id)
+  if (!tabIds.length) {
+    return { groupedTabCount: 0, grouped: false }
+  }
+  const groupId = await ext.tabs.group({ tabIds })
+  const grouped = Number.isInteger(groupId)
+  if (grouped && typeof ext.tabGroups?.update === "function") {
+    await ext.tabGroups.update(groupId, {
+      title: String(workspace.name || "").trim() || "Workspace",
+      color: "blue",
+      collapsed: false
+    })
+  }
+  return {
+    groupedTabCount: tabIds.length,
+    grouped
+  }
+}
+
+async function ungroupWorkspaceInChrome(workspaceId) {
+  if (typeof ext.tabs.ungroup !== "function") {
+    return { ungroupedGroupCount: 0, ungroupedTabCount: 0 }
+  }
+  const workspace = findWorkspaceById(workspaceId)
+  if (!workspace) {
+    return { ungroupedGroupCount: 0, ungroupedTabCount: 0 }
+  }
+  const workspaceUrls = getWorkspaceRecordUrls(workspace)
+  if (!workspaceUrls.size) {
+    return { ungroupedGroupCount: 0, ungroupedTabCount: 0 }
+  }
+  const tabs = await ext.tabs.query({})
+  const groupedCandidates = tabs.filter(
+    (tab) => workspaceUrls.has(tab.url || "") && Number.isInteger(tab.groupId) && tab.groupId >= 0
+  )
+  const tabIds = groupedCandidates.map((tab) => tab.id)
+  if (!tabIds.length) {
+    return { ungroupedGroupCount: 0, ungroupedTabCount: 0 }
+  }
+  const ungroupedGroupCount = new Set(groupedCandidates.map((tab) => tab.groupId)).size
+  try {
+    await ext.tabs.ungroup(tabIds)
+  } catch {}
+  return { ungroupedGroupCount, ungroupedTabCount: tabIds.length }
+}
+
 function renderWorkspaces() {
   const root = $("workspaceList")
   root.innerHTML = state.workspaces
     .map((workspace) => {
       const createdAt = new Date(workspace.createdAt).toLocaleString()
       const expanded = state.workspaceExpandedIds.has(workspace.id)
+      const openedTabIds = state.workspaceOpenTabIds.get(workspace.id) || []
+      const workspaceOpened = openedTabIds.length > 0
       return `
       <article class="workspace" data-id="${workspace.id}">
         <div class="workspace-header">
@@ -622,6 +862,8 @@ function renderWorkspaces() {
             <span class="group-meta">${workspace.tabs.length} tabs</span>
           </div>
           <div class="workspace-actions">
+            <button class="workspace-mini-btn" data-action="group-workspace" data-id="${workspace.id}" type="button" ${workspaceOpened ? "" : "disabled"}>Group</button>
+            <button class="workspace-mini-btn" data-action="ungroup-workspace" data-id="${workspace.id}" type="button" ${workspaceOpened ? "" : "disabled"}>Ungroup</button>
             <button class="icon-btn workspace-icon-btn" data-action="add-current-tab" data-id="${workspace.id}" title="Add focused tab to this workspace">＋</button>
             <button class="icon-btn workspace-icon-btn" data-action="toggle" data-id="${workspace.id}" title="${expanded ? "Collapse" : "Expand"}">${expanded ? "▴" : "▾"}</button>
           </div>
@@ -630,7 +872,6 @@ function renderWorkspaces() {
           <div class="group-meta workspace-date">${createdAt}</div>
           <div class="tab-list">
             ${workspace.tabs
-              .slice(0, 6)
               .map(
                 (tab, idx) => `
                 <article class="workspace-tab-item">
@@ -699,6 +940,7 @@ function renderWorkspaces() {
               ? `Opened ${result.restoredCount} record(s) in a Chrome tab group`
               : `Opened ${result.restoredCount} record(s)`
           )
+          await refreshWorkspaces()
         } else if (action === "remove-tab") {
           const tabIndex = Number(button.getAttribute("data-index"))
           let tabUrl = ""
@@ -732,6 +974,21 @@ function renderWorkspaces() {
               ? `Restored ${result.restoredCount} tab(s) in a Chrome tab group`
               : `Restored ${result.restoredCount} tab(s)`
           )
+          await refreshWorkspaces()
+        } else if (action === "group-workspace") {
+          const result = await groupWorkspaceInChrome(workspaceId)
+          await refreshWorkspaces()
+          await refreshSnapshot()
+          setStatus(
+            result.grouped
+              ? `Workspace grouped ${result.groupedTabCount} tab(s)`
+              : `Workspace group skipped`
+          )
+        } else if (action === "ungroup-workspace") {
+          const result = await ungroupWorkspaceInChrome(workspaceId)
+          await refreshWorkspaces()
+          await refreshSnapshot()
+          setStatus(`Workspace ungrouped ${result.ungroupedGroupCount} group(s), ${result.ungroupedTabCount} tab(s)`)
         } else if (action === "remove-workspace") {
           await sendMessage({ type: "DELETE_WORKSPACE", workspaceId })
           await refreshWorkspaces()
@@ -792,6 +1049,16 @@ function bindEvents() {
       }
     } catch (error) {
       setStatus(error.message || "Organize failed")
+    }
+  })
+
+  $("ungroupDomainBtn")?.addEventListener("click", async () => {
+    try {
+      const result = await ungroupDomainOrganizedTabs()
+      await refreshSnapshot()
+      setStatus(`Ungrouped ${result.ungroupedGroupCount} group(s), ${result.ungroupedTabCount} tab(s)`)
+    } catch (error) {
+      setStatus(error.message || "Ungroup failed")
     }
   })
 

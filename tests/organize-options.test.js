@@ -90,5 +90,7 @@ describe("organize-options", () => {
     const html = fs.readFileSync(filePath, "utf8")
     expect(html.includes('id="organizeDomainBtn"')).toBe(true)
     expect(html.includes(">Organize<")).toBe(true)
+    expect(html.includes('id="ungroupDomainBtn"')).toBe(true)
+    expect(html.includes(">Ungroup ig WS<")).toBe(true)
   })
 })
